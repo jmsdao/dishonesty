@@ -9,7 +9,7 @@ dependencies:
   - python>=3.10
   # CUDA stuff
   - cuda-toolkit=12.2  # Select a CUDA version compatible with your hardware
-  # - pytorch-gpu>=2.1
+  - pytorch>=2.1.1
   # Libraries
   - pytest
   - scikit-learn

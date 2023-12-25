@@ -67,13 +67,19 @@ class HookedMistral:
 
     def __repr__(self):
         return (
-            "Supported hook points:\n"
+            "Supported caches:\n"
             "embed_tokens\n"
             "attn_out_{0..31}\n"
             "mlp_out_{0..31}\n"
             "resid_post_{0..31}\n"
             "final_rscale\n"
-            "final_norm_out"
+            "final_norm_out\n"
+            "\n"
+            "Supported hook points:\n"
+            "embed_tokens\n"
+            "attn_out_{0..31}\n"
+            "mlp_out_{0..31}\n"
+            "resid_post_{0..31}\n"
         )
 
     def __call__(self, prompts):
@@ -157,7 +163,7 @@ class HookedMistral:
         raise Exception(f"{name_to_get} not found.")
 
     def add_hook(self, name, hook_fnc):
-        module = self.get_module(name)
+        module = self.get_module(hook_name_to_module_name(name))
         handle = module.register_forward_hook(hook_fnc)
         return handle
 
@@ -167,6 +173,9 @@ class HookedMistral:
             module._forward_pre_hooks.clear()
 
     def run_with_cache(self, prompts, names):
+        # Get attention mask
+        _, attention_mask = self.to_tokens(prompts, return_mask=True)
+
         # Init cache and add hooks
         cache = MistralCache()
         handles = []
@@ -184,6 +193,24 @@ class HookedMistral:
 
         return logits, cache
 
+
+# =========================== HELPERS FOR HOOKS  =========================== #
+def hook_name_to_module_name(hook_name):
+    if hook_name == "embed_tokens":
+        module_name = "model.embed_tokens"
+    elif "attn_out" in hook_name:
+        layer = int(hook_name.split("_")[-1])
+        module_name = f"model.layers.{layer}.self_attn"
+    elif "mlp_out" in hook_name:
+        layer = int(hook_name.split("_")[-1])
+        module_name = f"model.layers.{layer}.mlp"
+    elif "resid_post" in hook_name:
+        layer = int(hook_name.split("_")[-1])
+        module_name = f"model.layers.{layer}"
+    else:
+        raise Exception(f"Unsupported hook point: {hook_name}")
+
+    return module_name
 
 # ==================== HELPERS FOR CACHING ACTIVATIONS ==================== #
 def _cache_hook(module, input, output, name=None, cache=None):

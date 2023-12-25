@@ -23,7 +23,7 @@ git clone https://github.com/jmsdao/dishonesty.git && cd dishonesty
 
 ```bash
 # Install and activate env (fresh)
-mamba env create -f environment.yaml && mamba activate lie
+mamba env create -f environment.yml && mamba activate lie
 ```
 
 ```python

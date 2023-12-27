@@ -23,7 +23,17 @@ git clone https://github.com/jmsdao/dishonesty.git && cd dishonesty
 
 ```bash
 # Install and activate env (fresh)
-mamba env create -f environment.yml && mamba activate lie
+mamba env create -f environment.yml && mamba activate dishonesty
+```
+
+```bash
+# Activate the env from a runpod workspace
+mamba activate /workspace/mamba-envs/dishonesty
+```
+
+```bash
+# Install the repo's packages
+pip install -e .
 ```
 
 ```python

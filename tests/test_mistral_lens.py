@@ -1,14 +1,6 @@
-# Handy snippet to get repo root from anywhere in the repo
-import sys
-from subprocess import check_output
-
-ROOT = check_output("git rev-parse --show-toplevel", shell=True).decode("utf-8").strip()
-if ROOT not in sys.path:
-    sys.path.append(ROOT)
-
-# Actual imports
 import torch as t
-from mistral_lens import load_model
+from dishonesty.mistral_lens import load_model
+
 
 t.set_grad_enabled(False)
 device = "cuda" if t.cuda.is_available() else "cpu"

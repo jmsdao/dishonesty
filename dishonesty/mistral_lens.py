@@ -7,15 +7,16 @@ import einops
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 from functools import partial
-
 from transformers import AutoTokenizer, AutoModelForCausalLM
+
+device = "cuda" if t.cuda.is_available() else "cpu"
 
 
 def load_model(
     model_name="mistralai/Mistral-7B-Instruct-v0.1",
     torch_dtype=t.float16,
-    device_map="auto",
-    cache_dir=None,
+    device_map=device,
+    cache_dir="/workspace/cache",
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding=True, padding_side="left")
     tokenizer.pad_token_id = 1

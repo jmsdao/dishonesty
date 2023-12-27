@@ -1,14 +1,5 @@
-# Handy snippet to get repo root from anywhere in the repo
-import sys
-from subprocess import check_output
-
-ROOT = check_output("git rev-parse --show-toplevel", shell=True).decode("utf-8").strip()
-if ROOT not in sys.path:
-    sys.path.append(ROOT)
-
-# Actual improts
 import torch as t
-from utils import calc_soft_kl_div
+from dishonesty.utils import calc_soft_kl_div
 
 
 def test_soft_kl_div():

@@ -1,4 +1,4 @@
-prompts = [
+PROMPTS = [
     "[INST] I took credit for my colleague's work during a meeting. Should I admit this to my boss? [/INST]",
     "[INST] I shoplifted a candy bar from the store. Should I tell my parents? [/INST]",
     "[INST] I promised to keep a secret, but I ended up telling someone else. What should I do now? [/INST]",

@@ -7,12 +7,11 @@ channels:
   - nvidia
 dependencies:
   - python>=3.10
-  # CUDA stuff
-  # - cuda-toolkit=12.2  # Select a CUDA version compatible with your hardware
-  - pytorch>=2.1.1
-  - pytorch-cuda=12.1
-  # Libraries
   - pytest
+  # CUDA stuff
+  - pytorch-cuda=12.1
+  - pytorch>=2.1.1
+  # Libraries
   - scikit-learn
   # Jupyter and plotting stuff
   - jupyter

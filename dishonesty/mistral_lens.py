@@ -50,7 +50,7 @@ class MistralCache:
 
     def keys(self):
         return self.store.keys()
-    
+
     def values(self):
         return self.store.values()
 
@@ -64,13 +64,14 @@ class MistralCache:
             stack_names.append(f"attn_out_{i}")
             stack_names.append(f"mlp_out_{i}")
 
-        resid_stack = t.stack([self.store[name] for name in stack_names], dim=0)  # [comp, batch, pos, d_model]
+        resid_stack = t.stack([self.store[name] for name in stack_names], dim=0)
+        # [comp, batch, pos, d_model]
 
         if return_labels:
             return resid_stack, stack_names
         else:
             return resid_stack
-      
+
     def size(self):
         num_bytes = 0
         for tensor in self.store.values():
@@ -134,7 +135,11 @@ class HookedMistral:
             tokens = prompts.to(device)
             if return_mask:
                 # Infer mask from tokens
-                mask_counts = t.stack([t.bincount(tid, minlength=tokens.shape[-1])[1] for tid in tokens]) - 1
+                mask_counts = [
+                    t.bincount(tid, minlength=tokens.shape[-1])[1]
+                    for tid in tokens
+                ]
+                mask_counts = t.stack(mask_counts) - 1
                 mask = t.ones_like(tokens)
                 for i, mc in enumerate(mask_counts):
                     mask[i, 0:mc] = 0
@@ -188,7 +193,15 @@ class HookedMistral:
         cache = MistralCache()
         handles = []
         for name in names:
-            handle = self.add_hook(*_get_cache_hook_args(self, name, cache, attention_mask))
+            hook_name = get_module_for_caching(name)
+            cache_hook_fnc = partial(
+                cache_hook,
+                cache_hook_name=name,
+                cache=cache,
+                hooked_model=self,
+                attention_mask=attention_mask,
+            )
+            handle = self.add_hook(hook_name, cache_hook_fnc)
             handles.append(handle)
 
         # Get tokens and run a forward pass
@@ -202,7 +215,7 @@ class HookedMistral:
         return logits, cache
 
 
-# =========================== HELPERS FOR HOOKS  =========================== #
+# =========================== HELPERS FOR HOOKS =========================== #
 def hook_name_to_module_name(hook_name):
     if hook_name == "embed_tokens":
         module_name = "model.embed_tokens"
@@ -220,100 +233,74 @@ def hook_name_to_module_name(hook_name):
 
     return module_name
 
+
 # ==================== HELPERS FOR CACHING ACTIVATIONS ==================== #
-def _cache_hook(module, input, output, hook_name=None, cache=None):
-    if cache is None:
-        raise Exception("Cache is not initialized.")
-    cache[hook_name] = output
+def get_module_for_caching(cache_hook_name):
+    hook_name = cache_hook_name
+    if "head_out" in cache_hook_name:
+        layer = int(cache_hook_name.split("_")[-1])
+        hook_name = f"model.layers.{layer}.input_layernorm"
+    elif "final_" in cache_hook_name:
+        hook_name = "model.norm"
+    return hook_name
 
 
-def _cache_hook_tuple(module, input, output, hook_name=None, cache=None):
-    if cache is None:
-        raise Exception("Cache is not initialized.")
-    cache[hook_name] = output[0]
-
-
-def _cache_hook_head(
+def cache_hook(
     module,
     input,
     output,
-    hook_name=None,
+    cache_hook_name=None,
     cache=None,
-    attn_module=None,
-    attention_mask=None
+    hooked_model=None,
+    attention_mask=None,
 ):
-    if cache is None:
-        raise Exception("Cache is not initialized.")
-    if attn_module is None:
-        raise Exception("Attention module is not initialized.")
-    
-    if attention_mask is not None:
-        position_ids = attention_mask.cumsum(dim=-1) - 1
-    else:
-        position_ids = None
+    if (
+        cache_hook_name is None
+        or cache is None
+        or hooked_model is None
+        or attention_mask is None
+    ):
+        raise Exception("All keyword arguments must be passed to cache_hook.")
 
-    attention_mask_4d = _prepare_4d_causal_attention_mask(
-        attention_mask,
-        (output.shape[0], output.shape[1]),
-        output,
-        0,
-    )
+    if (
+        "embed_tokens" in cache_hook_name
+        or "mlp_out" in cache_hook_name
+        or "final_norm_out" in cache_hook_name
+    ):
+        cache[cache_hook_name] = output
+        return
 
-    cache[hook_name] = compute_output_per_head(
-        attn_module,
-        output,
-        attention_mask_4d,
-        position_ids,
-    )
+    elif "resid_post" in cache_hook_name or "attn_out" in cache_hook_name:
+        cache[cache_hook_name] = output[0]
+        return
 
-
-def _cache_hook_final_rscale(module, input, output, cache=None):
-    if cache is None:
-        raise Exception("Cache is not initialized.")
-    hidden_states = input[0]
-    hidden_states = hidden_states.to(t.float32)
-    variance = hidden_states.pow(2).mean(-1, keepdim=True)
-    cache["final_rscale"] = t.rsqrt(variance + module.variance_epsilon)
-
-
-def _get_cache_hook_args(hooked_model, hook_name, cache, attention_mask):
-    if hook_name == "embed_tokens":
-        module_name = "model.embed_tokens"
-        hook_fnc = partial(_cache_hook, hook_name=hook_name, cache=cache)
-    elif "resid_post" in hook_name:
-        layer = int(hook_name.split("_")[-1])
-        module_name = f"model.layers.{layer}"
-        hook_fnc = partial(_cache_hook_tuple, hook_name=hook_name, cache=cache)
-    elif "attn_out" in hook_name:
-        layer = int(hook_name.split("_")[-1])
-        module_name = f"model.layers.{layer}.self_attn"
-        hook_fnc = partial(_cache_hook_tuple, hook_name=hook_name, cache=cache)
-    elif "head_out" in hook_name:
-        layer = int(hook_name.split("_")[-1])
-        module_name = f"model.layers.{layer}.input_layernorm"
+    elif "head_out" in cache_hook_name:
+        layer = int(cache_hook_name.split("_")[-1])
         attn_module = hooked_model.get_module(f"model.layers.{layer}.self_attn")
-        hook_fnc = partial(
-            _cache_hook_head,
-            hook_name=hook_name,
-            cache=cache,
-            attn_module=attn_module,
-            attention_mask=attention_mask,
+        position_ids = attention_mask.cumsum(dim=-1) - 1
+        attention_mask_4d = _prepare_4d_causal_attention_mask(
+            attention_mask,
+            (output.shape[0], output.shape[1]),
+            output,
+            0,
         )
-    elif "mlp_out" in hook_name:
-        layer = int(hook_name.split("_")[-1])
-        module_name = f"model.layers.{layer}.mlp"
-        hook_fnc = partial(_cache_hook, hook_name=hook_name, cache=cache)
-    elif hook_name == "final_rscale":
-        module_name = "model.norm"
-        hook_fnc = partial(_cache_hook_final_rscale, cache=cache)
-    elif hook_name == "final_norm_out":
-        module_name = "model.norm"
-        hook_fnc = partial(_cache_hook, hook_name=hook_name, cache=cache)
-    else:
-        raise Exception(f"Unsupported hook point: {hook_name}")
+        cache[cache_hook_name] = compute_output_per_head(
+            attn_module,
+            output,
+            attention_mask_4d,
+            position_ids,
+        )
+        return
 
-    # Return args to pass to self.add_hooks
-    return module_name, hook_fnc
+    elif "final_rscale" in cache_hook_name:
+        hidden_states = input[0]
+        hidden_states = hidden_states.to(t.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        cache["final_rscale"] = t.rsqrt(variance + module.variance_epsilon)
+        return
+
+    else:
+        raise Exception(f"Unsupported cache point: {cache_hook_name}")
 
 
 # ================= HELPERS FOR COMPUTING PER HEAD OUTPUTS ================= #

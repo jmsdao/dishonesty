@@ -1,3 +1,32 @@
+import numpy as np
+import pandas as pd
+
+from typing import Optional, Union, List
+from torch import Tensor
+
+
+def ntensor_to_long(
+    tensor: Union[Tensor, np.array],
+    value_name: str = "values",
+    dim_names: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """
+    Converts an n-dimensional tensor to a long format dataframe.
+    """
+    df = pd.DataFrame()
+    df[value_name] = tensor.cpu().numpy().flatten()
+
+    for i, _ in enumerate(tensor.shape):
+        pattern = np.repeat(np.arange(tensor.shape[i]), np.prod(tensor.shape[i+1:]))
+        n_repeats = np.prod(tensor.shape[:i])
+        df[f"dim{i}"] = np.tile(pattern, n_repeats)
+
+    if dim_names is not None:
+        df.columns = [value_name] + dim_names
+    
+    return df
+
+
 def calc_soft_kl_div(target_logits, input_logits, temperature=1.0, eps=1e-6):
     # When temperature is 0.0, calculate using argmax for numerical stability.
     if temperature == 0.0:

@@ -45,7 +45,7 @@ if ROOT not in sys.path: sys.path.append(ROOT)
 ```
 
 ## Some ideas for later
-- Convert notebooks to python scripts
+- Definitely need to test out more prompts, especially ones that are negations of one another
 - Try some new ideas:
   - Training SAEs on the MLPs that stands out ie mlp_20
   - Investigating what's up with layer 16

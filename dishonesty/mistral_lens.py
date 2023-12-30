@@ -18,7 +18,12 @@ def load_model(
     device_map=device,
     cache_dir="/workspace/cache",
 ):
-    tokenizer = AutoTokenizer.from_pretrained(model_name, padding=True, padding_side="left")
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        padding=True,
+        padding_side="left",
+        cache_dir=cache_dir,
+    )
     tokenizer.pad_token_id = 1
     hf_model = AutoModelForCausalLM.from_pretrained(
         model_name,
@@ -65,7 +70,6 @@ class MistralCache:
             stack_names.append(f"mlp_out_{i}")
 
         resid_stack = t.stack([self.store[name] for name in stack_names], dim=0)
-        # [comp, batch, pos, d_model]
 
         if return_labels:
             return resid_stack, stack_names
@@ -185,7 +189,7 @@ class HookedMistral:
             module._forward_hooks.clear()
             module._forward_pre_hooks.clear()
 
-    def run_with_cache(self, prompts, names):
+    def run_with_cache(self, prompts, names, pos_slicer=slice(None), to_cpu=False):
         # Get attention mask
         _, attention_mask = self.to_tokens(prompts, return_mask=True)
 
@@ -200,6 +204,8 @@ class HookedMistral:
                 cache=cache,
                 hooked_model=self,
                 attention_mask=attention_mask,
+                pos_slicer=pos_slicer,
+                to_cpu=to_cpu,
             )
             handle = self.add_hook(hook_name, cache_hook_fnc)
             handles.append(handle)
@@ -253,12 +259,15 @@ def cache_hook(
     cache=None,
     hooked_model=None,
     attention_mask=None,
+    pos_slicer=slice(None),
+    to_cpu=False,
 ):
     if (
         cache_hook_name is None
         or cache is None
         or hooked_model is None
         or attention_mask is None
+        or pos_slicer is None
     ):
         raise Exception("All keyword arguments must be passed to cache_hook.")
 
@@ -267,12 +276,10 @@ def cache_hook(
         or "mlp_out" in cache_hook_name
         or "final_norm_out" in cache_hook_name
     ):
-        cache[cache_hook_name] = output
-        return
+        tensor_to_cache = output
 
     elif "resid_post" in cache_hook_name or "attn_out" in cache_hook_name:
-        cache[cache_hook_name] = output[0]
-        return
+        tensor_to_cache = output[0]
 
     elif "head_out" in cache_hook_name:
         layer = int(cache_hook_name.split("_")[-1])
@@ -284,23 +291,28 @@ def cache_hook(
             output,
             0,
         )
-        cache[cache_hook_name] = compute_output_per_head(
+        
+        tensor_to_cache = compute_output_per_head(
             attn_module,
             output,
             attention_mask_4d,
             position_ids,
         )
-        return
 
     elif "final_rscale" in cache_hook_name:
         hidden_states = input[0]
         hidden_states = hidden_states.to(t.float32)
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        cache["final_rscale"] = t.rsqrt(variance + module.variance_epsilon)
-        return
+        tensor_to_cache = t.rsqrt(variance + module.variance_epsilon)
 
     else:
         raise Exception(f"Unsupported cache point: {cache_hook_name}")
+
+    # Finally, cache the tensor
+    tensor_to_cache = tensor_to_cache[:, pos_slicer].detach().clone()
+    if to_cpu:
+        tensor_to_cache = tensor_to_cache.cpu()
+    cache[cache_hook_name] = tensor_to_cache
 
 
 # ================= HELPERS FOR COMPUTING PER HEAD OUTPUTS ================= #
@@ -665,7 +677,7 @@ def compute_output_per_head(
     hidden_states: torch.Tensor,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+) -> torch.Tensor:
     bsz, q_len, _ = hidden_states.size()
 
     query_states = attn_module.q_proj(hidden_states)

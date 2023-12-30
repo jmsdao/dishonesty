@@ -23,7 +23,7 @@ def ntensor_to_long(
 
     if dim_names is not None:
         df.columns = [value_name] + dim_names
-    
+
     return df
 
 

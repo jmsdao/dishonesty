@@ -225,7 +225,7 @@ class HookedMistral:
 def hook_name_to_module_name(hook_name):
     if hook_name == "embed_tokens":
         module_name = "model.embed_tokens"
-    elif "attn_out" in hook_name:
+    elif "attn_out" in hook_name or "head_out" in hook_name:
         layer = int(hook_name.split("_")[-1])
         module_name = f"model.layers.{layer}.self_attn"
     elif "mlp_out" in hook_name:

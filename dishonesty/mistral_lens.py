@@ -79,7 +79,7 @@ class MistralCache:
     def size(self):
         num_bytes = 0
         for tensor in self.store.values():
-            num_bytes += tensor.numel() * tensor.dtype.itemsize
+            num_bytes += tensor.untyped_storage().nbytes()
         print(f"Cache size: {num_bytes / 1e6 :.1f} MB")
 
 
@@ -291,7 +291,7 @@ def cache_hook(
             output,
             0,
         )
-        
+
         tensor_to_cache = compute_output_per_head(
             attn_module,
             output,
